@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Identity Project</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; background: #f4f4f9; }
+        .container { max-width: 600px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+        input, textarea, button { width: 100%; margin-bottom: 15px; padding: 10px; box-sizing: border-box; }
+        button { background: #007bff; color: white; border: none; cursor: pointer; font-weight: bold; }
+        button:hover { background: #0056b3; }
+        .result { padding: 15px; background: #e9ecef; border-radius: 4px; min-height: 50px; }
+        .badge { display: inline-block; padding: 5px 10px; color: white; border-radius: 4px; font-weight: bold; margin-bottom: 10px;}
+        .trusted { background: green; }
+        .untrusted { background: red; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>ML-Secured Email Summarizer</h2>
+
+        <label>Any Sender Email:</label>
+        <input type="email" id="sender" placeholder="anyone@anywhere.com">
+
+        <label>Email Body:</label>
+        <textarea id="body" rows="5"
+            placeholder="Write a normal email, OR try a complex prompt injection..."></textarea>
+
+        <button onclick="summarize()">Process via ML Firewall</button>
+
+        <h3>Security Analysis:</h3>
+        <div id="mlStats"
+            style="display:none; padding: 10px; background: #333; color: #00ff00; border-radius: 4px; font-family: monospace; margin-bottom: 15px;">
+            <div>Threat Detected: <span id="isMalicious"></span></div>
+            <div>Threat Type: <span id="threatType"></span></div>
+            <div>Confidence Score: <span id="confidence"></span>%</div>
+            <div>Reasoning: <span id="reasoning"></span></div>
+        </div>
+
+        <h3>Output:</h3>
+        <div class="result" id="output">Output will appear here...</div>
+    </div>
+
+    <script>
+        async function summarize() {
+            const sender = document.getElementById('sender').value;
+            const body = document.getElementById('body').value;
+            const output = document.getElementById('output');
+            const mlStats = document.getElementById('mlStats');
+
+            output.innerText = "Analyzing intent via Machine Learning...";
+            mlStats.style.display = "none";
+
+            try {
+                const response = await fetch('/api/summarize', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sender, body })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    output.innerHTML = `<strong style="color:red;">🚨 CONNECTION TERMINATED BY ML FIREWALL</strong><br><br>${data.detail}`;
+                    return;
+                }
+
+                // Populate ML Data
+                document.getElementById('isMalicious').innerText = data.is_malicious ? "YES" : "NO";
+                document.getElementById('isMalicious').style.color = data.is_malicious ? "red" : "#00ff00";
+
+                document.getElementById('threatType').innerText = data.threat_type;
+                document.getElementById('confidence').innerText = (data.confidence_score * 100).toFixed(1);
+                document.getElementById('reasoning').innerText = data.reasoning;
+
+                mlStats.style.display = "block";
+                output.innerText = data.summary;
+
+            } catch (err) {
+                output.innerText = "Connection Error.";
+            }
+        }
+    </script>
+</body>
+</body>
+</html>
