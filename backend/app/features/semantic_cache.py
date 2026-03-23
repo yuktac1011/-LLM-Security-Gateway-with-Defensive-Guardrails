@@ -1,77 +1,73 @@
-import hashlib
+import uuid
 from pinecone import Pinecone
-from openai import AsyncOpenAI
 from app.core.config import settings
 
 # Initialize Pinecone Client
 pc = Pinecone(api_key=settings.PINECONE_API_KEY)
 index = pc.Index(settings.PINECONE_INDEX_NAME)
 
-# We use standard OpenAI API for embeddings (or your preferred provider)
-client = AsyncOpenAI(api_key=settings.LLM_API_KEY) # Using standard OpenAI for embeddings
-
-async def get_embedding(text: str) -> list[float]:
-    """Converts text into a 1536-dimensional mathematical vector."""
-    try:
-        response = await client.embeddings.create(
-            input=text,
-            model="text-embedding-3-small" # Industry standard fast embedding model
-        )
-        return response.data[0].embedding
-    except Exception as e:
-        print(f"Embedding failed: {e}")
-        return []
+# Pinecone's built-in embedding model (1024 dimensions)
+EMBEDDING_MODEL = "multilingual-e5-large" 
 
 async def check_semantic_cache(text: str) -> dict | None:
     """
-    Queries Pinecone to see if this exact semantic intent has been flagged before.
-    Returns the cached ML Report if Cosine Similarity > 95%.
+    Searches Pinecone to see if a mathematically similar attack has been caught before.
+    Returns the cached ML report if found, else returns None.
     """
-    embedding = await get_embedding(text)
-    if not embedding:
-        return None
-        
     try:
-        # Search the Vector DB for the 1 closest match
+        # 1. Convert user text to a Vector Embedding
+        embedding = pc.inference.embed(
+            model=EMBEDDING_MODEL,
+            inputs=[text],
+            parameters={"input_type": "query"}
+        )
+        vector_math = embedding[0].values
+        
+        # 2. Search Pinecone for similar attacks (Cosine Similarity)
         results = index.query(
-            vector=embedding,
+            vector=vector_math,
             top_k=1,
             include_metadata=True
         )
         
-        if results.matches and results.matches[0].score > 0.95:
+        # 3. Check Confidence Score of the similarity match
+        if results.matches and results.matches[0].score > 0.90:
             metadata = results.matches[0].metadata
-            if metadata.get("is_malicious"):
-                return {
-                    "is_malicious": True,
-                    "confidence_score": metadata.get("confidence_score", 0.99),
-                    "threat_type": metadata.get("threat_type", "Cached Threat"),
-                    "reasoning": f"Semantic Cache Hit (Similarity: {results.matches[0].score:.2f}). {metadata.get('reasoning', '')}"
-                }
+            return {
+                "is_malicious": True,
+                "confidence_score": 0.99,
+                "threat_type": metadata.get("threat_type", "Cached Threat"),
+                "reasoning": f"Blocked by Pinecone Semantic Cache. Similarity match: {round(results.matches[0].score * 100, 1)}%"
+            }
+        return None
     except Exception as e:
-        print(f"Pinecone query failed: {e}")
-        
-    return None
+        print(f"Pinecone Cache Search Error: {e}")
+        return None
 
-def save_to_semantic_cache(text: str, ml_report: dict, embedding: list[float]):
+async def add_to_semantic_cache(text: str, ml_report: dict):
     """
-    Saves a newly discovered attack to Pinecone so it's blocked instantly next time.
+    AUTO-LEARNING: Saves new, verified attacks to the Vector DB.
     """
     try:
-        # Create a unique ID based on the text hash
-        text_id = hashlib.sha256(text.encode()).hexdigest()
+        # 1. Convert the malicious text to a vector
+        embedding = pc.inference.embed(
+            model=EMBEDDING_MODEL,
+            inputs=[text],
+            parameters={"input_type": "passage"}
+        )
+        vector_math = embedding[0].values
         
+        # 2. Save it to Pinecone with the ML Report as Metadata
         index.upsert(
             vectors=[{
-                "id": text_id,
-                "values": embedding,
+                "id": str(uuid.uuid4()), 
+                "values": vector_math, 
                 "metadata": {
-                    "is_malicious": ml_report.get("is_malicious", False),
-                    "confidence_score": ml_report.get("confidence_score", 0.0),
                     "threat_type": ml_report.get("threat_type", "Unknown"),
-                    "reasoning": ml_report.get("reasoning", "")
+                    "original_text": text[:200]
                 }
             }]
         )
+        print("Successfully learned and cached new threat vector in Pinecone.")
     except Exception as e:
-        print(f"Pinecone upsert failed: {e}")
+        print(f"Pinecone Upsert Error: {e}")

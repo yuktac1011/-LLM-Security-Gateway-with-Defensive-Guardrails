@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     
     # Pinecone Vector DB Settings
     PINECONE_API_KEY: str = os.getenv("PINECONE_API_KEY", "")
-    PINECONE_INDEX_NAME: str = "security-cache"
+    PINECONE_INDEX_NAME: str = "identity"
     
     # Security Settings
     TRUSTED_SENDERS: list = ["mom@home.com", "boss@company.com"]
