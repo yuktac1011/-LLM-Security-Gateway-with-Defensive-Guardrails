@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>CISO Security Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #f0f2f5;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: auto;
+        }
+
+        h1,
+        h2 {
+            color: #333;
+        }
+
+        nav {
+            margin-bottom: 20px;
+        }
+
+        nav a {
+            text-decoration: none;
+            background: #007bff;
+            color: white;
+            padding: 8px 15px;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .kpi-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+
+        .kpi-card .value {
+            font-size: 2.5em;
+            font-weight: bold;
+            color: #007bff;
+        }
+
+        .kpi-card .label {
+            font-size: 1em;
+            color: #666;
+            margin-top: 5px;
+        }
+
+        .chart-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            margin-bottom: 30px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        th,
+        td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+
+        th {
+            background-color: #f4f6f8;
+        }
+
+        .threat-yes {
+            color: red;
+            font-weight: bold;
+        }
+
+        .threat-no {
+            color: green;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <nav><a href="/">&larr; Back to Summarizer</a></nav>
+        <h1>CISO Security Dashboard</h1>
+
+        <div class="kpi-grid">
+            <div class="kpi-card">
+                <div id="total-events" class="value">0</div>
+                <div class="label">Total Events Processed</div>
+            </div>
+            <div class="kpi-card">
+                <div id="total-threats" class="value">0</div>
+                <div class="label">Total Threats Detected</div>
+            </div>
+            <div class="kpi-card">
+                <div id="avg-latency" class="value">0ms</div>
+                <div class="label">Average Request Latency</div>
+            </div>
+        </div>
+
+        <div class="chart-container">
+            <h2>Threat Breakdown</h2>
+            <canvas id="threat-chart"></canvas>
+        </div>
+
+        <h2>Live Event Log (Last 100)</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Timestamp</th>
+                    <th>Sender</th>
+                    <th>Threat Detected</th>
+                    <th>Threat Type</th>
+                    <th>Confidence</th>
+                    <th>Latency (ms)</th>
+                </tr>
+            </thead>
+            <tbody id="log-table-body">
+                <!-- JS will populate this -->
+            </tbody>
+        </table>
+    </div>
+
+</body>
+<script>
+    async function fetchData() {
+        console.log("Fetching logs...");
+        try {
+            const response = await fetch('/api/logs');
+            const logs = await response.json();
+            console.log("Data received:", logs);
+
+            if (!logs || logs.length === 0) {
+                document.getElementById('log-table-body').innerHTML = '<tr><td colspan="6" style="text-align:center;">No security events recorded yet. Try processing an email first!</td></tr>';
+                return;
+            }
+
+            populateKPIs(logs);
+            renderChart(logs);
+            populateLogTable(logs);
+        } catch (error) {
+            console.error('Frontend Error:', error);
+            document.getElementById('log-table-body').innerHTML = '<tr><td colspan="6" style="color:red; text-align:center;">Failed to load logs from API.</td></tr>';
+        }
+    }
+
+    function populateKPIs(logs) {
+        const totalEvents = logs.length;
+        const threats = logs.filter(log => log.is_malicious || log.is_malicious === 1);
+        const totalThreats = threats.length;
+        const totalLatency = logs.reduce((sum, log) => sum + (log.latency_ms || 0), 0);
+        const avgLatency = totalEvents > 0 ? (totalLatency / totalEvents).toFixed(0) : 0;
+
+        document.getElementById('total-events').innerText = totalEvents;
+        document.getElementById('total-threats').innerText = totalThreats;
+        document.getElementById('avg-latency').innerText = `${avgLatency}ms`;
+    }
+
+    let myChart = null; // Global variable to track chart instance
+
+    function renderChart(logs) {
+        const threats = logs.filter(log => log.is_malicious || log.is_malicious === 1);
+        if (threats.length === 0) return;
+
+        const threatCounts = {};
+        threats.forEach(log => {
+            const type = log.threat_type || 'Unknown';
+            threatCounts[type] = (threatCounts[type] || 0) + 1;
+        });
+
+        const ctx = document.getElementById('threat-chart').getContext('2d');
+
+        // If chart already exists, destroy it before creating a new one (prevents loops)
+        if (myChart) { myChart.destroy(); }
+
+        myChart = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: Object.keys(threatCounts),
+                datasets: [{
+                    data: Object.values(threatCounts),
+                    backgroundColor: ['#dc3545', '#ffc107', '#fd7e14', '#20c997', '#0dcaf0']
+                }]
+            },
+            options: { responsive: true, maintainAspectRatio: false }
+        });
+    }
+
+    function populateLogTable(logs) {
+        const tbody = document.getElementById('log-table-body');
+        tbody.innerHTML = '';
+        logs.forEach(log => {
+            const row = document.createElement('tr');
+            const isMalicious = log.is_malicious === 1 || log.is_malicious === true;
+            row.innerHTML = `
+                <td>${new Date(log.timestamp).toLocaleString()}</td>
+                <td>${log.sender}</td>
+                <td class="${isMalicious ? 'threat-yes' : 'threat-no'}">${isMalicious ? 'YES' : 'NO'}</td>
+                <td>${log.threat_type || 'N/A'}</td>
+                <td>${((log.confidence_score || 0) * 100).toFixed(1)}%</td>
+                <td>${(log.latency_ms || 0).toFixed(0)}ms</td>
+            `;
+            tbody.appendChild(row);
+        });
+    }
+
+    window.onload = fetchData;
+</script>
+
+</html>
